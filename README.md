@@ -1,5 +1,7 @@
 # payments-api
 
+[![CI has the Zoomies](https://zoomies.sh/badge.svg)](https://zoomies.sh)
+
 A small charges service written with the Go standard library: create a charge,
 read it back, and retry safely with an idempotency key.
 
