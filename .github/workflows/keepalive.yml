@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   enable:
-    runs-on: ubuntu-latest
+    runs-on: zoomies-demo
     timeout-minutes: 5
     steps:
       - name: Enable every workflow in this repository
