@@ -1,0 +1,37 @@
+# Keeps the scheduled workflows above from being switched off. Copy it into
+# every zoomies-demo repository as .github/workflows/keepalive.yml.
+#
+# GitHub disables a repository's scheduled workflows after sixty days with no
+# activity in it, and a demo repository has no reason to change. Enabling a
+# workflow again through the API resets that clock, so once a week this
+# enables every workflow in its own repository, itself included.
+#
+# It runs on a GitHub-hosted runner, not the demo fleet, on purpose: it holds
+# a token that can change this repository's Actions settings, and the demo's
+# runners are processes on a shared pod whose logs anyone can read. The token
+# is the job's own GITHUB_TOKEN, so the organisation still holds no secret.
+name: keepalive
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  enable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Enable every workflow in this repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh api "repos/$REPO/actions/workflows" --jq '.workflows[].id' |
+            while read -r id; do
+              gh api -X PUT "repos/$REPO/actions/workflows/$id/enable"
+              echo "enabled workflow $id"
+            done

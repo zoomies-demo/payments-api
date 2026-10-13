@@ -1,0 +1,114 @@
+# The demo fleet's busiest workflow: a pull-request-shaped pipeline that runs
+# on a schedule instead. Copy it into a zoomies-demo repository as
+# .github/workflows/build.yml; README.md in this folder says how the
+# organisation around it has to be set up first.
+#
+# Every step is plain shell, because the demo's runners are processes on a
+# pod (the process backend) with only what Ubuntu ships, and a demo that
+# spends its minutes installing toolchains shows visitors a download bar.
+# What it does show is the shape the fleet is for: a lint gate, a build, a
+# test matrix running side by side, and a package step that waits for all
+# of it.
+name: build
+
+on:
+  schedule:
+    # Every twenty minutes. Offset the minutes per repository (README.md has
+    # a table) so the repositories take turns rather than queue together.
+    - cron: "12,32,52 * * * *"
+  workflow_dispatch:
+
+# Nothing here writes, and nothing a visitor can read should be able to.
+permissions:
+  contents: read
+
+# One run at a time per repository. A run still queued when the next is due
+# is replaced by it, so a slow afternoon never piles up a backlog.
+concurrency:
+  group: build
+  cancel-in-progress: false
+
+jobs:
+  lint:
+    runs-on: zoomies-demo
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check formatting
+        run: |
+          echo "checking $(git ls-files | wc -l) tracked files"
+          sleep 8
+          echo "formatting: clean"
+      - name: Static analysis
+        run: |
+          for pkg in api auth billing cart catalogue checkout search; do
+            echo "analysing ./$pkg"
+            sleep 2
+          done
+          echo "0 findings"
+
+  build:
+    needs: lint
+    runs-on: zoomies-demo
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Compile
+        run: |
+          for unit in core storage http ui cli; do
+            echo "compiling $unit"
+            sleep 6
+          done
+          mkdir -p dist
+          date -u +"built %Y-%m-%dT%H:%M:%SZ by run ${GITHUB_RUN_NUMBER}" > dist/BUILD
+          cat dist/BUILD
+
+  test:
+    needs: build
+    runs-on: zoomies-demo
+    timeout-minutes: 10
+    strategy:
+      # Every suite reports even when one fails, so the failure views have a
+      # red job beside green ones rather than a cancelled column.
+      fail-fast: false
+      matrix:
+        suite: [unit, integration, e2e]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run the ${{ matrix.suite }} suite
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          case "$SUITE" in
+            unit) tests=48 pause=1 ;;
+            integration) tests=16 pause=4 ;;
+            e2e) tests=9 pause=8 ;;
+          esac
+          i=1
+          while [ "$i" -le "$tests" ]; do
+            printf 'ok   %s/test_%02d\n' "$SUITE" "$i"
+            sleep "$pause"
+            i=$((i + 1))
+          done
+          # One run in seven fails its end-to-end suite on purpose, so the
+          # fleet always has a recent failure for visitors to open and for
+          # Eli and the MCP tools to explain. It is labelled as planned in
+          # the log, so nobody mistakes it for a broken demo.
+          if [ "$SUITE" = e2e ] && [ $((GITHUB_RUN_NUMBER % 7)) -eq 0 ]; then
+            echo "FAIL e2e/checkout_applies_discount: expected total 18.00, got 20.00"
+            echo "(a planned failure: one run in seven fails here so the demo has one to show)"
+            exit 1
+          fi
+          echo "$tests passed"
+
+  package:
+    needs: test
+    runs-on: zoomies-demo
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Package
+        run: |
+          echo "packaging run ${GITHUB_RUN_NUMBER}"
+          sleep 10
+          echo "package ready (not published: this is a demo)"
